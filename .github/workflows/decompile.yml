@@ -1,0 +1,63 @@
+name: Decompile APK from Google Drive
+
+on:
+  workflow_dispatch:
+
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── 1. Cài Java ──────────────────────────────────────────
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      # ── 2. Cài apktool + jadx ────────────────────────────────
+      - name: Install tools
+        run: |
+          wget -q https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar \
+            -O apktool.jar
+          wget -q https://github.com/skylot/jadx/releases/download/v1.5.0/jadx-1.5.0.zip \
+            -O jadx.zip
+          unzip -q jadx.zip -d jadx-bin
+          chmod +x jadx-bin/bin/jadx
+
+      # ── 3. Tải APK từ Google Drive ───────────────────────────
+      - name: Download APK from Google Drive
+        run: |
+          pip install gdown -q
+          gdown "https://drive.google.com/uc?id=1Z59HG6WgHIbi73cE4yEhrJJlSdY4eWZw" -O target.apk
+          ls -lh target.apk
+
+      # ── 4. Decompile bằng apktool (XML + resources) ──────────
+      - name: Decompile with apktool
+        run: |
+          java -jar apktool.jar d target.apk -o decompiled_apktool -f
+
+      # ── 5. Decompile bằng jadx (Java/Kotlin) ─────────────────
+      - name: Decompile with jadx
+        run: |
+          jadx-bin/bin/jadx target.apk -d decompiled_jadx --show-bad-code
+
+      # ── 6. Nén và upload kết quả ─────────────────────────────
+      - name: Zip results
+        run: |
+          zip -r decompiled_apktool.zip decompiled_apktool/
+          zip -r decompiled_jadx.zip decompiled_jadx/
+
+      - name: Upload apktool output (XML + resources)
+        uses: actions/upload-artifact@v4
+        with:
+          name: decompiled-apktool
+          path: decompiled_apktool.zip
+
+      - name: Upload jadx output (Java/Kotlin)
+        uses: actions/upload-artifact@v4
+        with:
+          name: decompiled-jadx
+          path: decompiled_jadx.zip
