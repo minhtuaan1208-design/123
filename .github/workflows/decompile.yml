@@ -17,15 +17,22 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      # ── 2. Cài apktool + jadx ────────────────────────────────
+  # ── 2. Cài apktool + jadx ────────────────────────────────
       - name: Install tools
         run: |
-          wget -q https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar \
+          # Tải apktool từ GitHub Releases (thay vì bitbucket)
+          wget -q https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar \
             -O apktool.jar
+
+          # Tải jadx
           wget -q https://github.com/skylot/jadx/releases/download/v1.5.0/jadx-1.5.0.zip \
             -O jadx.zip
           unzip -q jadx.zip -d jadx-bin
           chmod +x jadx-bin/bin/jadx
+          
+          # Kiểm tra
+          java -jar apktool.jar --version
+          jadx-bin/bin/jadx --version
 
       # ── 3. Tải APK từ Google Drive ───────────────────────────
       - name: Download APK from Google Drive
