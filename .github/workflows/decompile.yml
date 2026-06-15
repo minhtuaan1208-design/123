@@ -25,23 +25,24 @@ jobs:
           Write-Host "Downloading: $($asset.browser_download_url)"
           Invoke-WebRequest -Uri $asset.browser_download_url -OutFile il2cpp.zip
           Expand-Archive il2cpp.zip -DestinationPath dumper
-          dir dumper
 
       - name: Extract files from APK
         run: |
           Expand-Archive HSNRv011.apk -DestinationPath extracted
-          dir extracted\lib\arm64-v8a
-          dir extracted\assets\bin\Data\Managed\Metadata
 
       - name: Run Il2CppDumper
         run: |
           mkdir output
           $so = "extracted\lib\arm64-v8a\libil2cpp.so"
           $meta = "extracted\assets\bin\Data\Managed\Metadata\global-metadata.dat"
-          dotnet dumper\Il2CppDumper.dll $so $meta output\
+          echo "" | dotnet dumper\Il2CppDumper.dll $so $meta output\
+        continue-on-error: true
+
+      - name: Check output
+        run: dir output
 
       - name: Upload dump.cs
         uses: actions/upload-artifact@v4
         with:
           name: il2cpp-dump
-          path: output/dump.cs
+          path: output/
