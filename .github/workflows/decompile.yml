@@ -1,70 +1,40 @@
-name: Decompile APK from Google Drive
-
-on:
-  workflow_dispatch:
+name: Il2Cpp Dump
+on: workflow_dispatch
 
 jobs:
-  decompile:
+  dump:
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v4
-
-      # ── 1. Cài Java ──────────────────────────────────────────
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-  # ── 2. Cài apktool + jadx ────────────────────────────────
-      - name: Install tools
+      - name: Install dependencies
         run: |
-          # Tải apktool từ GitHub Releases (thay vì bitbucket)
-          wget -q https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar \
-            -O apktool.jar
+          sudo apt-get install -y dotnet-runtime-8.0 wget unzip
 
-          # Tải jadx
-          wget -q https://github.com/skylot/jadx/releases/download/v1.5.0/jadx-1.5.0.zip \
-            -O jadx.zip
-          unzip -q jadx.zip -d jadx-bin
-          chmod +x jadx-bin/bin/jadx
-          
-          # Kiểm tra
-          java -jar apktool.jar --version
-          jadx-bin/bin/jadx --version
-
-      # ── 3. Tải APK từ Google Drive ───────────────────────────
-      - name: Download APK from Google Drive
+      - name: Download APK from MediaFire
         run: |
-          pip install gdown -q
-          gdown "https://drive.google.com/uc?id=1Z59HG6WgHIbi73cE4yEhrJJlSdY4eWZw" -O target.apk
-          ls -lh target.apk
+          wget -O HSNRv011.apk "https://www.mediafire.com/file/f7hdxz25ofz5ass/HSNRv011.apk/file?dkey=cixl6oa63oh&r=1075"
 
-      # ── 4. Decompile bằng apktool (XML + resources) ──────────
-      - name: Decompile with apktool
+      - name: Download Il2CppDumper
         run: |
-          java -jar apktool.jar d target.apk -o decompiled_apktool -f
+          wget https://github.com/Perfare/Il2CppDumper/releases/latest/download/Il2CppDumper-net6-linux.zip
+          unzip Il2CppDumper-net6-linux.zip -d dumper
 
-      # ── 5. Decompile bằng jadx (Java/Kotlin) ─────────────────
-      - name: Decompile with jadx
+      - name: Extract metadata from APK
         run: |
-          jadx-bin/bin/jadx target.apk -d decompiled_jadx --show-bad-code
+          unzip HSNRv011.apk \
+            "lib/arm64-v8a/libil2cpp.so" \
+            "assets/bin/Data/Managed/Metadata/global-metadata.dat" \
+            -d extracted/
 
-      # ── 6. Nén và upload kết quả ─────────────────────────────
-      - name: Zip results
+      - name: Run Il2CppDumper
         run: |
-          zip -r decompiled_apktool.zip decompiled_apktool/
-          zip -r decompiled_jadx.zip decompiled_jadx/
+          mkdir output
+          dotnet dumper/Il2CppDumper.dll \
+            extracted/lib/arm64-v8a/libil2cpp.so \
+            extracted/assets/bin/Data/Managed/Metadata/global-metadata.dat \
+            output/
 
-      - name: Upload apktool output (XML + resources)
+      - name: Upload dump.cs
         uses: actions/upload-artifact@v4
         with:
-          name: decompiled-apktool
-          path: decompiled_apktool.zip
-
-      - name: Upload jadx output (Java/Kotlin)
-        uses: actions/upload-artifact@v4
-        with:
-          name: decompiled-jadx
-          path: decompiled_jadx.zip
+          name: il2cpp-dump
+          path: output/dump.cs
