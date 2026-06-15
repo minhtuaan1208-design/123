@@ -1,48 +1,166 @@
-name: Il2Cpp Dump
+name: Full IL2CPP Analysis
 on: workflow_dispatch
 
 jobs:
-  dump:
-    runs-on: windows-latest
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
     steps:
-      - name: Setup .NET 6
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y default-jdk unzip wget curl
+
+      - name: Download APK and extract
+        run: |
+          PAGE=$(curl -s "https://www.mediafire.com/file/f7hdxz25ofz5ass/HSNRv011.apk/file")
+          URL=$(echo "$PAGE" | grep -o 'https://download[^"]*\.apk[^"]*' | head -1)
+          echo "URL: $URL"
+          wget -O HSNRv011.apk "$URL"
+          ls -lh HSNRv011.apk
+          unzip HSNRv011.apk \
+            "lib/arm64-v8a/libil2cpp.so" \
+            "assets/bin/Data/Managed/Metadata/global-metadata.dat" \
+            -d extracted/
+
+      - name: Setup dotnet 6
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '6.0.x'
 
-      - name: Download APK from MediaFire
+      - name: Il2CppDumper
         run: |
-          $page = Invoke-WebRequest -Uri "https://www.mediafire.com/file/f7hdxz25ofz5ass/HSNRv011.apk/file" -UseBasicParsing
-          $url = ($page.Links | Where-Object { $_.href -match "download.*\.apk" } | Select-Object -First 1).href
-          Write-Host "URL: $url"
-          Invoke-WebRequest -Uri $url -OutFile HSNRv011.apk
-          Get-Item HSNRv011.apk
+          LATEST=$(curl -s https://api.github.com/repos/Perfare/Il2CppDumper/releases/latest)
+          URL=$(echo "$LATEST" | grep browser_download_url | grep linux | head -1 | cut -d'"' -f4)
+          if [ -z "$URL" ]; then
+            URL=$(echo "$LATEST" | grep browser_download_url | head -1 | cut -d'"' -f4)
+          fi
+          echo "Downloading: $URL"
+          wget -O il2cpp.zip "$URL"
+          unzip il2cpp.zip -d dumper/
+          mkdir -p dump_output
+          echo "" | dotnet dumper/Il2CppDumper.dll \
+            extracted/lib/arm64-v8a/libil2cpp.so \
+            extracted/assets/bin/Data/Managed/Metadata/global-metadata.dat \
+            dump_output/ || true
+          ls -lh dump_output/
 
-      - name: Download Il2CppDumper
+      - name: Download Ghidra
         run: |
-          $release = Invoke-RestMethod "https://api.github.com/repos/Perfare/Il2CppDumper/releases/latest"
-          $asset = $release.assets | Where-Object { $_.name -match "net6" } | Select-Object -First 1
-          Write-Host "Downloading: $($asset.browser_download_url)"
-          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile il2cpp.zip
-          Expand-Archive il2cpp.zip -DestinationPath dumper
+          wget -q https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_11.1.2_build/ghidra_11.1.2_PUBLIC_20240709.zip
+          unzip -q ghidra_11.1.2_PUBLIC_20240709.zip
+          echo "Ghidra ready"
 
-      - name: Extract files from APK
+      - name: Write Ghidra script
         run: |
-          Expand-Archive HSNRv011.apk -DestinationPath extracted
+          mkdir -p scripts
+          cat > scripts/AnalyzeMoneyCharge.java << 'JAVAEOF'
+          import ghidra.app.script.GhidraScript;
+          import ghidra.program.model.symbol.*;
+          import ghidra.program.model.listing.*;
+          import ghidra.app.decompiler.*;
+          import java.io.*;
+          import java.util.*;
 
-      - name: Run Il2CppDumper
+          public class AnalyzeMoneyCharge extends GhidraScript {
+              public void run() throws Exception {
+                  PrintWriter out = new PrintWriter(new FileWriter("/tmp/analysis_output.txt"));
+                  out.println("=== GHIDRA ANALYSIS REPORT ===\n");
+
+                  DecompInterface decomp = new DecompInterface();
+                  decomp.openProgram(currentProgram);
+
+                  // Search all functions for payment-related names
+                  String[] keywords = {
+                      "money", "charge", "nap", "pay", "card", "topup",
+                      "recharge", "serial", "pin", "buy", "shop", "purchase",
+                      "viettel", "mobi", "vina", "momo", "vnpay", "zalo",
+                      "http", "server", "login", "register", "user", "token",
+                      "url", "api", "request", "response", "send", "receive",
+                      "packet", "socket", "connect", "network", "cmd"
+                  };
+
+                  FunctionManager fm = currentProgram.getFunctionManager();
+                  FunctionIterator fi = fm.getFunctions(true);
+                  List<Function> matched = new ArrayList<>();
+
+                  out.println("=== SEARCHING FUNCTIONS ===");
+                  while (fi.hasNext()) {
+                      Function f = fi.next();
+                      String name = f.getName().toLowerCase();
+                      for (String kw : keywords) {
+                          if (name.contains(kw)) {
+                              matched.add(f);
+                              out.println("MATCH: " + f.getName() + " @ " + f.getEntryPoint());
+                              break;
+                          }
+                      }
+                  }
+
+                  out.println("\nTotal matched functions: " + matched.size());
+
+                  // Decompile matched functions
+                  out.println("\n=== DECOMPILED FUNCTIONS ===");
+                  int count = 0;
+                  for (Function f : matched) {
+                      if (count++ > 50) break; // limit
+                      try {
+                          out.println("\n--- Function: " + f.getName() + " @ " + f.getEntryPoint() + " ---");
+                          DecompileResults res = decomp.decompileFunction(f, 120, monitor);
+                          if (res != null && res.decompileCompleted()) {
+                              out.println(res.getDecompiledFunction().getC());
+                          }
+                      } catch (Exception e) {
+                          out.println("Error decompiling: " + e.getMessage());
+                      }
+                  }
+
+                  // Also dump all string references
+                  out.println("\n=== STRING REFERENCES (payment-related) ===");
+                  SymbolTable st = currentProgram.getSymbolTable();
+                  SymbolIterator si = st.getAllSymbols(true);
+                  while (si.hasNext()) {
+                      Symbol sym = si.next();
+                      String name = sym.getName().toLowerCase();
+                      for (String kw : keywords) {
+                          if (name.contains(kw)) {
+                              out.println(sym.getSymbolType() + ": " + sym.getName() + " @ " + sym.getAddress());
+                              break;
+                          }
+                      }
+                  }
+
+                  decomp.dispose();
+                  out.flush();
+                  out.close();
+                  println("Analysis complete!");
+              }
+          }
+          JAVAEOF
+
+      - name: Run Ghidra headless
         run: |
-          mkdir output
-          $so = "extracted\lib\arm64-v8a\libil2cpp.so"
-          $meta = "extracted\assets\bin\Data\Managed\Metadata\global-metadata.dat"
-          echo "" | dotnet dumper\Il2CppDumper.dll $so $meta output\
-        continue-on-error: true
+          mkdir -p ghidra_project
+          ghidra_11.1.2_PUBLIC/support/analyzeHeadless \
+            $(pwd)/ghidra_project MyProject \
+            -import extracted/lib/arm64-v8a/libil2cpp.so \
+            -postScript AnalyzeMoneyCharge.java \
+            -scriptPath $(pwd)/scripts \
+            -maxMemory 6g \
+            2>&1 | tee ghidra_log.txt | tail -50
 
-      - name: Check output
-        run: dir output
+      - name: Collect all results
+        run: |
+          mkdir -p final_output
+          cp dump_output/dump.cs final_output/ 2>/dev/null || true
+          cp dump_output/stringliteral.json final_output/ 2>/dev/null || true
+          cp /tmp/analysis_output.txt final_output/ghidra_analysis.txt 2>/dev/null || true
+          cp ghidra_log.txt final_output/ 2>/dev/null || true
+          ls -lh final_output/
 
-      - name: Upload dump.cs
+      - name: Upload everything
         uses: actions/upload-artifact@v4
         with:
-          name: il2cpp-dump
-          path: output/
+          name: full-analysis
+          path: final_output/
