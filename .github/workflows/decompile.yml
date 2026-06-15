@@ -3,43 +3,36 @@ on: workflow_dispatch
 
 jobs:
   dump:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
-      - name: Install dotnet
-        run: |
-          wget https://dot.net/v1/dotnet-install.sh
-          chmod +x dotnet-install.sh
-          ./dotnet-install.sh --channel 8.0 --runtime dotnet
-          echo "$HOME/.dotnet" >> $GITHUB_PATH
-
       - name: Download APK from MediaFire
         run: |
-          DOWNLOAD_URL=$(curl -s "https://www.mediafire.com/file/f7hdxz25ofz5ass/HSNRv011.apk/file" | grep -o 'https://download[^"]*\.apk[^"]*' | head -1)
-          wget -O HSNRv011.apk "$DOWNLOAD_URL"
-          ls -lh HSNRv011.apk
+          $page = Invoke-WebRequest -Uri "https://www.mediafire.com/file/f7hdxz25ofz5ass/HSNRv011.apk/file" -UseBasicParsing
+          $url = ($page.Links | Where-Object { $_.href -match "download.*\.apk" } | Select-Object -First 1).href
+          Write-Host "URL: $url"
+          Invoke-WebRequest -Uri $url -OutFile HSNRv011.apk
+          Get-Item HSNRv011.apk
 
-      - name: Download Il2CppDumper (latest)
+      - name: Download Il2CppDumper
         run: |
-          LATEST=$(curl -s https://api.github.com/repos/Perfare/Il2CppDumper/releases/latest | grep browser_download_url | grep linux | cut -d'"' -f4)
-          echo "Downloading: $LATEST"
-          wget -O il2cpp.zip "$LATEST"
-          unzip il2cpp.zip -d dumper
-          ls dumper/
+          $release = Invoke-RestMethod "https://api.github.com/repos/Perfare/Il2CppDumper/releases/latest"
+          $asset = $release.assets | Where-Object { $_.name -match "win" -or $_.name -match "net6" } | Select-Object -First 1
+          Write-Host "Downloading: $($asset.browser_download_url)"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile il2cpp.zip
+          Expand-Archive il2cpp.zip -DestinationPath dumper
+          dir dumper
 
       - name: Extract files from APK
         run: |
-          unzip HSNRv011.apk \
-            "lib/arm64-v8a/libil2cpp.so" \
-            "assets/bin/Data/Managed/Metadata/global-metadata.dat" \
-            -d extracted/
+          Expand-Archive HSNRv011.apk -DestinationPath extracted
+          dir extracted
 
       - name: Run Il2CppDumper
         run: |
-          mkdir -p output
-          ~/.dotnet/dotnet dumper/Il2CppDumper.dll \
-            extracted/lib/arm64-v8a/libil2cpp.so \
-            extracted/assets/bin/Data/Managed/Metadata/global-metadata.dat \
-            output/
+          mkdir output
+          $so = "extracted\lib\arm64-v8a\libil2cpp.so"
+          $meta = "extracted\assets\bin\Data\Managed\Metadata\global-metadata.dat"
+          dotnet dumper\Il2CppDumper.dll $so $meta output\
 
       - name: Upload dump.cs
         uses: actions/upload-artifact@v4
