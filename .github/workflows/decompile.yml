@@ -14,15 +14,16 @@ jobs:
 
       - name: Download APK from MediaFire
         run: |
-          # Lấy direct link từ MediaFire
           DOWNLOAD_URL=$(curl -s "https://www.mediafire.com/file/f7hdxz25ofz5ass/HSNRv011.apk/file" | grep -o 'https://download[^"]*\.apk[^"]*' | head -1)
           wget -O HSNRv011.apk "$DOWNLOAD_URL"
           ls -lh HSNRv011.apk
 
-      - name: Download Il2CppDumper
+      - name: Download Il2CppDumper (latest)
         run: |
-          wget https://github.com/Perfare/Il2CppDumper/releases/download/v6.7.46/Il2CppDumper-net6-linux.zip
-          unzip Il2CppDumper-net6-linux.zip -d dumper
+          LATEST=$(curl -s https://api.github.com/repos/Perfare/Il2CppDumper/releases/latest | grep browser_download_url | grep linux | cut -d'"' -f4)
+          echo "Downloading: $LATEST"
+          wget -O il2cpp.zip "$LATEST"
+          unzip il2cpp.zip -d dumper
           ls dumper/
 
       - name: Extract files from APK
