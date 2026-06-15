@@ -5,20 +5,27 @@ jobs:
   dump:
     runs-on: ubuntu-latest
     steps:
-      - name: Install dependencies
+      - name: Install dotnet
         run: |
-          sudo apt-get install -y dotnet-runtime-8.0 wget unzip
+          wget https://dot.net/v1/dotnet-install.sh
+          chmod +x dotnet-install.sh
+          ./dotnet-install.sh --channel 8.0 --runtime dotnet
+          echo "$HOME/.dotnet" >> $GITHUB_PATH
 
       - name: Download APK from MediaFire
         run: |
-          wget -O HSNRv011.apk "https://www.mediafire.com/file/f7hdxz25ofz5ass/HSNRv011.apk/file?dkey=cixl6oa63oh&r=1075"
+          # Lấy direct link từ MediaFire
+          DOWNLOAD_URL=$(curl -s "https://www.mediafire.com/file/f7hdxz25ofz5ass/HSNRv011.apk/file" | grep -o 'https://download[^"]*\.apk[^"]*' | head -1)
+          wget -O HSNRv011.apk "$DOWNLOAD_URL"
+          ls -lh HSNRv011.apk
 
       - name: Download Il2CppDumper
         run: |
-          wget https://github.com/Perfare/Il2CppDumper/releases/latest/download/Il2CppDumper-net6-linux.zip
+          wget https://github.com/Perfare/Il2CppDumper/releases/download/v6.7.46/Il2CppDumper-net6-linux.zip
           unzip Il2CppDumper-net6-linux.zip -d dumper
+          ls dumper/
 
-      - name: Extract metadata from APK
+      - name: Extract files from APK
         run: |
           unzip HSNRv011.apk \
             "lib/arm64-v8a/libil2cpp.so" \
@@ -27,8 +34,8 @@ jobs:
 
       - name: Run Il2CppDumper
         run: |
-          mkdir output
-          dotnet dumper/Il2CppDumper.dll \
+          mkdir -p output
+          ~/.dotnet/dotnet dumper/Il2CppDumper.dll \
             extracted/lib/arm64-v8a/libil2cpp.so \
             extracted/assets/bin/Data/Managed/Metadata/global-metadata.dat \
             output/
